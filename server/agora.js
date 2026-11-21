@@ -1,0 +1,182 @@
+// VibeCart — Agora Conversational AI agent control
+// Starts/stops a ConvoAI agent in the user's RTC channel via the Agora REST API.
+// Tools: custom HTTPS tools — the engine calls OUR endpoints when the LLM wants to act.
+
+import pkg from "agora-token";
+const { RtcTokenBuilder, RtcRole, RtmTokenBuilder } = pkg;
+import { TOOLS, executeTool } from "./tools.js";
+
+const APP_ID = process.env.AGORA_APP_ID;
+const APP_CERT = process.env.AGORA_APP_CERTIFICATE;
+const BASIC_AUTH = Buffer.from(`${process.env.AGORA_CUSTOMER_KEY}:${process.env.AGORA_CUSTOMER_SECRET}`).toString("base64");
+const BASE_URL = process.env.PUBLIC_BASE_URL; // e.g. https://<ngrok-id>.ngrok-free.app
+// LLM: OpenAI (OPENAI_API_KEY) or any OpenAI-compatible API like DeepSeek (DEEPSEEK_API_KEY)
+const LLM_KEY = process.env.OPENAI_API_KEY;
+const LLM_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1/chat/completions";
+const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
+const MURF_KEY = process.env.MURF_API_KEY;
+
+const SYSTEM_PROMPT = `You are VibeCart, a friendly, fast-talking voice shopping assistant that guides the user through a complete shopping journey.
+Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checkout & payment, (4) delivery tracking, (5) delivered, (6) review.
+Rules:
+- Be extremely concise (1-3 sentences max); you are in a live voice call.
+- Personalize using get_user_context at the start of a shopping request (diet, budget, offers).
+- Recommend products by name and price; use compare_products when the user is unsure.
+- Always check inventory via check_inventory before adding to cart.
+- When the user wants to buy: add items to cart, ask if they want a discount code applied (mention their active offers), then confirm and initiate_checkout.
+- With online payment, tell the user the payment link is on their screen and wait for them to pay; confirm only when get_order_status shows confirmed.
+- Ask "want me to track your order?" after payment. Each tracking request advances delivery: preparing → out_for_delivery → delivered.
+- After delivery, proactively offer to submit_review (ask how they'd rate it 1-5).
+- Handle returns via initiate_return if the user is unhappy.
+- Never invent products, prices, or order IDs. Only use tool results.
+- If interrupted, stop immediately and address the user's new request.`;
+
+// Convert our OpenAI-style tools to Agora custom tools (engine calls our HTTPS endpoints)
+// NOTE: every param is marked required — Agora rejects unresolved {{args.*}} templates,
+// so the LLM must always pass a value ("" or 0 when not applicable).
+function agoraTools() {
+  return TOOLS.map(t => {
+    const fn = JSON.parse(JSON.stringify(t.function));
+    if (fn.parameters?.properties) {
+      fn.parameters.required = Object.keys(fn.parameters.properties);
+      for (const [k, v] of Object.entries(fn.parameters.properties)) {
+        if (v.description) v.description += ` Required. Pass ${v.type === "number" ? "0" : '""'} if not applicable.`;
+      }
+    }
+    // POST for anything with array/object params or mutations; GET only for simple scalar queries
+    const isPost = ["add_to_cart", "remove_from_cart", "apply_discount", "initiate_checkout", "initiate_return", "check_inventory", "compare_products", "search_catalog", "submit_review"].includes(fn.name);
+    const server = {
+      method: isPost ? "POST" : "GET",
+      url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}`
+    };
+    if (isPost) server.body = paramsToBody(fn.parameters);
+    return { type: "function", function: { name: fn.name, description: fn.description, parameters: fn.parameters }, server };
+  });
+}
+
+function paramsToQuery(params) {
+  const props = params?.properties || {};
+  return Object.keys(props).map(k => `${k}={{args.${k}}}`).join("&");
+}
+
+function paramsToBody(params) {
+  const props = params?.properties || {};
+  return Object.fromEntries(Object.keys(props).map(k => [k, `{{args.${k}}}`]));
+}
+
+function rtcToken(channel, uid = 0, expirySeconds = 3600 * 2) {
+  return RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERT, channel, uid, RtcRole.PUBLISHER, expirySeconds);
+}
+
+export function agoraRoutes(app) {
+  // Join endpoint for the browser: RTC token + agent session details
+  app.post("/api/agent/start", async (req, res) => {
+    const { channel, uid } = req.body;
+    if (!channel) return res.status(400).json({ error: "channel required" });
+
+    const token = rtcToken(channel, uid);
+    const agentUid = 90000 + Math.floor(Math.random() * 9999);
+
+    const body = {
+      name: `vibecart-${channel}-${Date.now()}`,
+      properties: {
+        channel,
+        token: rtcToken(channel, agentUid),
+        agent_rtc_uid: String(agentUid),
+        remote_rtc_uids: [String(uid)],
+        idle_timeout: 120,
+        advanced_features: { enable_tools: true, enable_rtm: true },
+        parameters: { data_channel: "rtm", enable_metrics: true, enable_error_message: true },
+        // Robust turn-taking: ignore short noises/echo, require ~600ms of clear speech
+        // to interrupt while the agent is speaking.
+        turn_detection: {
+          mode: "default",
+          config: {
+            speech_threshold: 0.65,
+            start_of_speech: {
+              mode: "vad",
+              vad_config: {
+                interrupt_duration_ms: 500,
+                speaking_interrupt_duration_ms: 600,
+                prefix_padding_ms: 800
+              }
+            }
+          }
+        },
+        asr: { language: "en-US" },
+        llm: {
+          vendor: "openai",
+          url: LLM_BASE_URL,
+          api_key: LLM_KEY,
+          system_messages: [{ role: "system", content: SYSTEM_PROMPT }],
+          greeting_message: "Hi! I'm VibeCart. Tell me what you're shopping for and I'll find it, compare, and check out for you.",
+          failure_message: "Sorry, one second — let me fix that.",
+          max_history: 32,
+          params: { model: LLM_MODEL, max_tokens: 200, temperature: 0.7 },
+          tools: agoraTools()
+        },
+        tts: {
+          vendor: "murf",
+          params: {
+            api_key: MURF_KEY,
+            base_url: "wss://global.api.murf.ai/v1/speech/stream-input",
+            voiceId: process.env.MURF_VOICE_ID || "en-US-matthew",
+            locale: "en-US",
+            rate: 0,
+            pitch: 0,
+            model: "FALCON",
+            sample_rate: 24000
+          }
+        }
+      }
+    };
+
+    try {
+      const r = await fetch(`https://api.agora.io/api/conversational-ai-agent/v2/projects/${APP_ID}/join`, {
+        method: "POST",
+        headers: { "Authorization": `Basic ${BASIC_AUTH}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await r.json();
+      if (!r.ok) return res.status(r.status).json({ error: "agora_join_failed", detail: data });
+      console.log(`[agent] started ${data.agent_id} channel=${channel} uid=${uid}`);
+      res.json({ appId: APP_ID, token, rtmToken: RtmTokenBuilder.buildToken(APP_ID, APP_CERT, String(uid), 3600), agentId: data.agent_id, agentUid });
+    } catch (e) {
+      res.status(502).json({ error: "agora_unreachable", detail: e.message });
+    }
+  });
+
+  app.post("/api/agent/stop", async (req, res) => {
+    const { agentId } = req.body;
+    try {
+      const r = await fetch(
+        `https://api.agora.io/api/conversational-ai-agent/v2/projects/${APP_ID}/agents/${agentId}/leave`,
+        { method: "POST", headers: { "Authorization": `Basic ${BASIC_AUTH}` } }
+      );
+      console.log(`[agent] stop requested ${agentId} ok=${r.ok}`);
+      res.status(r.ok ? 200 : r.status).json({ ok: r.ok });
+    } catch (e) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  // Diagnostics: dump turn metrics (ASR/LLM/TTS latencies, errors) for a session
+  app.get("/api/agent/turns/:agentId", async (req, res) => {
+    const r = await fetch(
+      `https://api.agora.io/api/conversational-ai-agent/v2/projects/${APP_ID}/agents/${req.params.agentId}/turns`,
+      { headers: { "Authorization": `Basic ${BASIC_AUTH}` } }
+    );
+    res.status(r.status).json(await r.json());
+  });
+
+  // HTTPS endpoint the ConvoAI engine calls when the LLM invokes a custom tool
+  app.post("/tools/:name", async (req, res) => {
+    const result = await executeTool(req.params.name, req.body);
+    res.json(result);
+  });
+
+  app.get("/tools/:name", async (req, res) => {
+    const result = await executeTool(req.params.name, req.query);
+    res.json(result);
+  });
+}

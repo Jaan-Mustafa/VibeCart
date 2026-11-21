@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VibeCart — Shop by Talking</title>
+<script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.23.4.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fafafa;
+    --surface:#ffffff;
+    --surface-2:#f7f8f8;
+    --border:#e3e6e6;
+    --accent:#ff9900;        /* Amazon orange */
+    --accent-dark:#e88b00;
+    --price:#b12704;         /* Amazon price red */
+    --text:#0f1111;
+    --muted:#565959;
+    --faint:#8b9598;
+    --radius:16px;
+  }
+  html{background:var(--bg)}
+  body{
+    font-family:'Inter',system-ui,sans-serif;
+    color:var(--text);
+    letter-spacing:-0.011em;
+    background:var(--bg);
+  }
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 1px 2px rgba(15,17,17,.06),0 8px 24px -16px rgba(15,17,17,.12)}
+  .card-title{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .chip{font-size:.75rem;padding:.32rem .75rem;border-radius:999px;background:#fff;border:1px solid var(--border);color:var(--muted);transition:.18s;cursor:default;box-shadow:0 1px 2px rgba(15,17,17,.04)}
+  .chip:hover{color:var(--text);border-color:#f1c27d;background:#fff8ec;transform:translateY(-1px)}
+  .row{border-radius:12px;background:var(--surface-2);border:1px solid transparent;transition:.18s}
+  .row:hover{border-color:#d5d9d9;background:#fff;box-shadow:0 2px 8px -2px rgba(15,17,17,.1);transform:translateY(-1px)}
+  .btn-main{position:relative;font-weight:700;color:#0f1111;border-radius:999px;background:linear-gradient(180deg,#ffb84d,var(--accent));border:1px solid #e88b00;box-shadow:0 4px 14px -4px rgba(255,153,0,.5);transition:.2s}
+  .btn-main:hover{filter:brightness(1.04);transform:translateY(-1px);box-shadow:0 6px 18px -4px rgba(255,153,0,.55)}
+  .btn-stop{background:linear-gradient(180deg,#ff6b6b,#f43f5e)!important;border-color:#dc2626!important;color:#fff!important;box-shadow:0 4px 14px -4px rgba(244,63,94,.5)!important}
+  @keyframes ring{0%{transform:scale(1);opacity:.5}100%{transform:scale(2);opacity:0}}
+  .pulse-ring{animation:ring 1.5s cubic-bezier(.2,.6,.4,1) infinite}
+  @keyframes floaty{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(-2deg)}}
+  .floaty{animation:floaty 3.5s ease-in-out infinite}
+  .bubble-in{animation:bi .28s cubic-bezier(.2,.8,.3,1)}
+  @keyframes bi{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+  @keyframes blink{0%,100%{opacity:.15}50%{opacity:1}}
+  .dot-anim span{animation:blink 1.2s infinite;display:inline-block}
+  .dot-anim span:nth-child(2){animation-delay:.2s}.dot-anim span:nth-child(3){animation-delay:.4s}
+  .scroll{scrollbar-width:thin;scrollbar-color:#d5d9d9 transparent}
+  .scroll::-webkit-scrollbar{width:6px}
+  .scroll::-webkit-scrollbar-thumb{background:#d5d9d9;border-radius:99px}
+  .price{font-variant-numeric:tabular-nums;font-weight:700;color:var(--price)}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .divider{height:1px;background:var(--border)}
+  /* Journey stepper */
+  #journey{width:100%}
+  .jstep{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 auto}
+  .jdot{width:28px;height:28px;border-radius:999px;display:grid;place-items:center;font-size:.72rem;font-weight:700;background:#f0f2f2;color:var(--faint);border:1px solid var(--border);transition:.25s}
+  .jlabel{font-size:.62rem;font-weight:600;color:var(--faint);text-align:center;white-space:nowrap}
+  .jline{flex:1;height:2px;background:var(--border);margin-bottom:16px;min-width:8px}
+  .jstep.active .jdot{background:#fff8ec;border-color:var(--accent);color:#b36b00;box-shadow:0 0 0 4px rgba(255,153,0,.15)}
+  .jstep.active .jlabel{color:var(--accent-dark)}
+  .jstep.done .jdot{background:#e7f6ec;border-color:#7dd3a8;color:#15803d}
+  .jstep.done .jlabel{color:#15803d}
+  .jstep.done .jdot::before{content:"✓"}
+  .jstep.done .jdot{font-size:0}
+  .jline.done{background:#7dd3a8}
+</style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Amazon-style dark top bar -->
+  <div class="w-full" style="background:#131921">
+    <div class="max-w-6xl mx-auto px-6 py-2.5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-xl">🛒</span>
+        <span class="text-white font-extrabold tracking-tight text-lg">VibeCart</span>
+        <span class="hidden sm:inline text-[11px] text-slate-300 border border-slate-500/40 rounded px-1.5 py-0.5">voice checkout · demo</span>
+      </div>
+      <div class="flex items-center gap-4 text-[12px] text-slate-300">
+        <span class="hidden md:inline">Hello, Arjun 👋</span>
+        <span class="hidden md:flex items-center gap-1">🧺 <span id="cartCountTop">Cart · 0</span></span>
+        <span id="statePill" class="hidden items-center gap-2 px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.12)">
+          <span id="stateDot" class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="stateText" class="capitalize text-white">listening</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-6xl mx-auto px-6 py-6">
+
+    <!-- Hero row -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
+      <div>
+        <h1 class="text-2xl font-extrabold tracking-tight">Shop by <span style="color:var(--accent-dark)">talking</span>.</h1>
+        <p id="status" class="text-sm text-slate-600 mt-1">Press <b class="text-slate-900">Start Talking</b> and say what you need — VibeCart finds it, compares, and checks out for you.</p>
+      </div>
+      <button id="talkBtn" class="btn-main px-6 py-3 text-sm flex items-center gap-2 self-start md:self-auto">
+        <span>🎙</span><span>Start Talking</span>
+        <span id="pulse" class="pulse-ring absolute inset-0 rounded-full border-2 border-orange-400 hidden"></span>
+      </button>
+    </div>
+
+    <!-- Suggestion chips -->
+    <div class="flex flex-wrap gap-2 mb-4">
+      <span class="chip">🥑 “keto dinner under ₹800”</span>
+      <span class="chip">🎧 “wireless earbuds under ₹1500”</span>
+      <span class="chip">🎁 “gift ideas for my nephew”</span>
+      <span class="chip">👟 “running shoes”</span>
+      <span class="chip">📚 “bestselling books”</span>
+    </div>
+
+    <!-- Journey stepper -->
+    <div class="card px-5 py-4 mb-5">
+      <div class="flex items-center justify-between gap-1" id="journey">
+        <div class="jstep" data-step="1"><span class="jdot">1</span><span class="jlabel">Discover</span></div>
+        <div class="jline"></div>
+        <div class="jstep" data-step="2"><span class="jdot">2</span><span class="jlabel">Compare & Choose</span></div>
+        <div class="jline"></div>
+        <div class="jstep" data-step="3"><span class="jdot">3</span><span class="jlabel">Pay</span></div>
+        <div class="jline"></div>
+        <div class="jstep" data-step="4"><span class="jdot">4</span><span class="jlabel">On the way</span></div>
+        <div class="jline"></div>
+        <div class="jstep" data-step="5"><span class="jdot">5</span><span class="jlabel">Delivered</span></div>
+        <div class="jline"></div>
+        <div class="jstep" data-step="6"><span class="jdot">6</span><span class="jlabel">Review</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+      <!-- Transcript -->
+      <section class="card p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3.5">
+          <h2 class="card-title">💬 Conversation</h2>
+          <span class="text-[10px] text-slate-400">live via RTM</span>
+        </div>
+        <div id="transcript" class="text-sm space-y-3 max-h-[430px] overflow-y-auto scroll pr-1.5">
+          <div class="text-slate-400 text-center py-10">Your words appear here in real time 🎧</div>
+        </div>
+      </section>
+
+      <!-- Center: recommendations + order -->
+      <section class="flex flex-col gap-5">
+        <div class="card p-5 flex-1">
+          <div class="flex items-center justify-between mb-3.5">
+            <h2 class="card-title">🛍 Recommendations</h2>
+            <span class="text-[10px] text-slate-400">100 items · 8 depts</span>
+          </div>
+          <div id="products" class="text-sm space-y-2"></div>
+        </div>
+        <div id="orderBox" class="hidden card !border-emerald-300 p-5"
+             style="background:linear-gradient(135deg,#f0fdf4,#ffffff)">
+          <div class="text-sm space-y-1.5" id="orderContent"></div>
+        </div>
+      </section>
+
+      <!-- Cart -->
+      <section class="card p-5 flex flex-col">
+        <div class="flex items-center justify-between mb-3.5">
+          <h2 class="card-title">🧺 Your Cart</h2>
+          <span id="cartCount" class="text-xs text-slate-500">0 items</span>
+        </div>
+        <ul id="cartItems" class="space-y-2 text-sm max-h-[230px] overflow-y-auto scroll"></ul>
+        <div id="cartTotals" class="mt-auto pt-4 border-t border-[var(--border)] text-sm space-y-1.5"></div>
+        <div id="checkoutHint" class="mt-3 text-[11px] text-slate-500 text-center">
+          say <span class="text-slate-800 mono">“checkout with saved card”</span> when ready
+        </div>
+      </section>
+    </div>
+
+    <footer class="mt-7 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-500">
+      Powered by
+      <span class="chip !cursor-default">Agora Conversational AI</span>
+      <span class="chip !cursor-default">Murf Falcon TTS</span>
+      <span class="chip !cursor-default">DeepSeek · Tool Calling</span>
+      <span class="chip !cursor-default">Agora RTC + RTM</span>
+    </footer>
+  </div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+let client = null, agentId = null, localTrack = null, sessionUid = Math.floor(Math.random() * 1e5) + 1;
+
+const DEPT_EMOJI = { grocery:"🥑", electronics:"🎧", home:"🛋️", beauty:"💄", fashion:"👟", sports:"🏋️", books:"📚", toys:"🧸" };
+
+// ---- Journey stepper ----
+let journey = { current: 0 }; // 0..6
+const STEP_STATUS_STAGE = { confirmed: 3, preparing: 4, out_for_delivery: 5, delivered: 6 };
+
+function setJourney(step) {
+  if (step > journey.current) journey.current = Math.min(step, 6);
+  const steps = [...document.querySelectorAll(".jstep")];
+  steps.forEach((el, i) => {
+    const s = i + 1;
+    el.classList.toggle("done", s < journey.current);
+    el.classList.toggle("active", s === journey.current);
+  });
+  document.querySelectorAll(".jline").forEach((l, i) => l.classList.toggle("done", i + 1 < journey.current));
+}
+
+// ---- SSE: live agent action events ----
+new EventSource("/api-events").onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  if (ev.type === "cart_update" && ev.result?.cart) renderCart(ev.result.cart);
+  if (ev.type === "order_placed" && ev.result?.order) renderOrder(ev.result.order, ev.result.paymentLink);
+  if (ev.type === "search_catalog") setJourney(1);
+  if (ev.type === "compare_products" || (ev.type === "cart_update" && ev.tool === "add_to_cart")) setJourney(2);
+  if (ev.type === "order_placed") setJourney(ev.result?.order?.status === "pending_payment" ? 3 : 4);
+  if (ev.type === "order_paid") setJourney(4);
+  if (ev.type === "order_paid") {
+    setJourney(4);
+    const box = $("orderContent");
+    if (box) {
+      const o = ev.result.order;
+      box.innerHTML = `
+        <div class="font-bold text-emerald-700 text-base">✅ Payment received — Order confirmed!</div>
+        <div class="mono text-emerald-800 text-sm">${o.id}</div>
+        <div class="flex justify-between font-bold pt-1"><span>Total</span><span class="price">₹${o.totals.total.toLocaleString()}</span></div>
+        <div class="text-[11px] text-slate-500">🚚 ETA ${o.eta} · ask for tracking or a return anytime</div>`;
+    }
+  }
+  if (ev.type === "order_status") {
+    const st = ev.result?.status;
+    if (STEP_STATUS_STAGE[st]) setJourney(STEP_STATUS_STAGE[st]);
+  }
+  if (ev.type === "review_submitted") setJourney(7);
+  if (ev.type === "products_shown" && Array.isArray(ev.result)) renderProducts(ev.result);
+};
+
+function renderProducts(items) {
+  if (!items.length) { $("products").innerHTML = `<div class="text-slate-400 text-center py-5">No matches — try another way of saying it</div>`; return; }
+  $("products").innerHTML = items.map(p =>
+    `<div class="bubble-in row flex items-center gap-3 px-3 py-2.5">
+       <div class="text-[1.35rem]">${DEPT_EMOJI[p.category] || "📦"}</div>
+       <div class="flex-1 min-w-0">
+         <div class="font-medium truncate text-[.9rem] text-slate-900">${p.name}</div>
+         <div class="text-[11px] text-slate-500 truncate">${p.brand || ""} · <span style="color:#de7921">★</span> ${p.rating} <span class="text-slate-400">(${(p.reviews||0).toLocaleString()})</span></div>
+       </div>
+       <div class="price text-[.95rem]">₹${p.price.toLocaleString()}</div>
+     </div>`).join("");
+}
+
+function renderCart(cart) {
+  const n = cart.items.reduce((s,i)=>s+i.qty,0);
+  $("cartCount").textContent = `${n} item${n===1?"":"s"}`;
+  $("cartCountTop").textContent = `Cart · ${n}`;
+  $("cartItems").innerHTML = cart.items.length ? cart.items.map(i =>
+    `<li class="bubble-in row flex justify-between items-center px-3 py-2">
+       <span class="min-w-0 truncate"><span class="text-emerald-600 font-bold">×${i.qty}</span> <span class="text-slate-800">${i.name}</span></span>
+       <span class="text-slate-700 whitespace-nowrap ml-2 price !font-medium">₹${(i.price * i.qty).toLocaleString()}</span>
+     </li>`).join("")
+    : `<li class="text-slate-400 text-center py-6">Cart is empty — tell VibeCart what you need 🛒</li>`;
+  const t = cart.totals;
+  $("cartTotals").innerHTML = `
+    <div class="flex justify-between text-slate-500"><span>Subtotal</span><span>₹${t.subtotal.toLocaleString()}</span></div>
+    ${t.discount ? `<div class="flex justify-between text-emerald-600"><span>Coupon ${cart.discount}</span><span>-₹${t.discount.toLocaleString()}</span></div>` : ""}
+    <div class="flex justify-between font-extrabold text-base pt-1"><span>Total</span><span class="price text-lg">₹${t.total.toLocaleString()}</span></div>`;
+  $("checkoutHint").classList.toggle("hidden", !cart.items.length);
+}
+
+function renderOrder(order, paymentLink) {
+  $("orderBox").classList.remove("hidden");
+  const pending = order.status === "pending_payment" && paymentLink;
+  $("orderContent").innerHTML = pending ? `
+    <div class="font-bold text-amber-600 text-base">⏳ Awaiting payment — ${order.id}</div>
+    <div class="text-slate-600">${order.items.reduce((s,i)=>s+i.qty,0)} items · <span class="price">₹${order.totals.total.toLocaleString()}</span></div>
+    <a href="${paymentLink}" target="_blank" rel="noopener"
+       class="mt-1.5 inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-white text-sm font-bold transition hover:brightness-105"
+       style="background:#5b21b6;box-shadow:0 4px 14px -4px rgba(91,33,182,.5)">💳 Pay ₹${order.totals.total.toLocaleString()} with Razorpay →</a>
+    <div class="text-[11px] text-slate-500 mt-1">test mode — use test UPI/card on the Razorpay page · I'll confirm the moment it's paid</div>` : `
+    <div class="font-bold text-emerald-700 text-base">✅ Order placed!</div>
+    <div class="mono text-emerald-800 text-sm">${order.id}</div>
+    <div class="text-slate-600">${order.items.reduce((s,i)=>s+i.qty,0)} items · paid via ${order.paymentMethod.replace("_"," ")}</div>
+    <div class="flex justify-between font-bold pt-1"><span>Total</span><span class="price">₹${order.totals.total.toLocaleString()}</span></div>
+    <div class="text-[11px] text-slate-500">🚚 ETA ${order.eta} · ask for tracking or a return anytime</div>`;
+}
+
+// ---- Live transcript via RTM ----
+const transcript = new Map();
+const rtmState = { rtm: null };
+
+function renderTranscript() {
+  const el = $("transcript");
+  const lines = [...transcript.values()];
+  if (!lines.length) { el.innerHTML = `<div class="text-slate-400 text-center py-10">Your words appear here in real time 🎧</div>`; return; }
+  el.innerHTML = lines.map(l => {
+    const isUser = l.role === "user";
+    return `<div class="bubble-in flex ${isUser ? "justify-end" : "justify-start"}">
+      <div class="max-w-[88%]">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1 ${isUser ? "text-right" : ""}">${isUser ? "You" : "VibeCart"}${l.final ? "" : " <span class='dot-anim'><span>·</span><span>·</span><span>·</span></span>"}</div>
+        <div class="px-3.5 py-2.5 rounded-2xl leading-snug text-slate-800 ${isUser
+          ? "rounded-br-md" : "rounded-bl-md"}" style="${isUser
+            ? "background:#e7f1fb;border:1px solid #cfe3f7"
+            : "background:#f0fdf4;border:1px solid #cdebd4"}">${l.text}</div>
+      </div>
+    </div>`;
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function handleTranscription(msg) {
+  if (typeof msg !== "object" || !msg.object || !msg.object.includes("transcription")) return;
+  const key = `${msg.turn_id}-${msg.user_id}`;
+  const role = msg.object.startsWith("user") ? "user" : "agent";
+  const isFinal = msg.final === true || msg.turn_status === 1;
+  transcript.set(key, { role, text: msg.text, final: isFinal });
+  renderTranscript();
+}
+
+function setAgentState(state) {
+  const pill = $("statePill");
+  if (!state) { pill.classList.add("hidden"); pill.classList.remove("flex"); return; }
+  pill.classList.remove("hidden"); pill.classList.add("flex");
+  $("stateText").textContent = state;
+  const colors = { listening:"bg-sky-400", thinking:"bg-amber-400", speaking:"bg-emerald-400 animate-pulse", idle:"bg-slate-400", silent:"bg-slate-500" };
+  $("stateDot").className = "w-2 h-2 rounded-full " + (colors[state] || "bg-slate-400");
+}
+
+async function connectRtm(appId, channel, uid, rtmToken) {
+  try {
+    const { RTM } = await import("/vendor/agora-rtm.js");
+    const rtm = new RTM(appId, String(uid));
+    rtm.addEventListener("message", (e) => {
+      try {
+        const msg = typeof e.message === "string" ? JSON.parse(e.message) : e.message;
+        handleTranscription(msg);
+      } catch {}
+    });
+    rtm.addEventListener("presence", (e) => {
+      try {
+        const st = e?.stateChanged?.state || e?.stateChanged?.[e.publisher]?.state;
+        if (st) setAgentState(st);
+      } catch {}
+    });
+    await rtm.login({ token: rtmToken });
+    await rtm.subscribe(channel);
+    rtmState.rtm = rtm;
+    console.log("RTM connected for transcripts");
+  } catch (e) {
+    console.warn("RTM transcript unavailable:", e.message);
+  }
+}
+
+function disconnectRtm() {
+  try { rtmState.rtm?.logout(); } catch {}
+  rtmState.rtm = null;
+  setAgentState(null);
+}
+
+// ---- Voice session ----
+$("talkBtn").onclick = async () => {
+  if (client) return stopSession();
+  try {
+    const channel = "vibecart-demo";
+    setStatus("Connecting…");
+    const r = await fetch("/api/agent/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel, uid: sessionUid })
+    });
+    if (!r.ok) throw new Error(JSON.stringify(await r.json()));
+    const { appId, token, rtmToken, agentId: aid } = await r.json();
+    agentId = aid;
+    transcript.clear(); renderTranscript();
+    connectRtm(appId, channel, sessionUid, rtmToken);
+
+    client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+    // Subscribe to the agent's audio (required to hear it!)
+    client.on("user-published", async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      if (mediaType === "audio") {
+        user.audioTrack?.play();
+        console.log("Agent audio subscribed & playing");
+      }
+    });
+    client.on("user-unpublished", (user) => user.audioTrack?.stop());
+
+    await client.join(appId, channel, token, sessionUid);
+    // Echo cancellation is critical — without it the agent hears its own voice
+    // through your speakers and interrupts itself constantly.
+    try {
+      localTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        AEC: true, ANS: true, AGC: true,
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true
+      });
+    } catch (micErr) {
+      const hint = /NotReadable|TrackStart/i.test(String(micErr?.code || micErr))
+        ? "mic is busy — close Zoom/Meet/other tabs using it, then retry"
+        : /NotAllowed|Permission/i.test(String(micErr?.code || micErr))
+        ? "mic permission denied — click the 🔒 icon in the address bar → allow microphone, then retry"
+        : "mic error — try reconnecting your microphone";
+      throw new Error(`🎙 ${hint} (${micErr?.code || micErr?.message || micErr})`);
+    }
+    await client.publish([localTrack]);
+    setStatus("🎙 Live — speak naturally. You can interrupt me anytime!");
+    $("talkBtn").innerHTML = "<span>⏹</span><span>End Session</span>";
+    $("talkBtn").classList.add("btn-stop");
+    $("pulse").classList.remove("hidden");
+  } catch (e) {
+    setStatus(`Error: ${e.message}`);
+    stopSession();
+  }
+};
+
+async function stopSession() {
+  try {
+    disconnectRtm();
+    if (agentId) await fetch("/api/agent/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId }) });
+    if (localTrack) { localTrack.close(); localTrack = null; }
+    if (client) { await client.leave(); client = null; }
+  } catch {}
+  setStatus("Session ended. Press <b class='text-slate-900'>Start Talking</b> to go again!");
+  $("talkBtn").innerHTML = "<span>🎙</span><span>Start Talking</span>";
+  $("talkBtn").classList.remove("btn-stop");
+  $("pulse").classList.add("hidden");
+}
+
+function setStatus(s) { $("status").innerHTML = s; }
+renderCart({ items: [], totals: { subtotal: 0, discount: 0, total: 0 } });
+renderProducts([]);
+</script>
+</body>
+</html>
