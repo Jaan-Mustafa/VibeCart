@@ -17,14 +17,16 @@ const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
 const MURF_KEY = process.env.MURF_API_KEY;
 
 // Interruption strategy: "on" (full voice interruption), "keywords" (interrupt only
-// on trigger words), "off" (never interrupt; user speech is queued until agent finishes).
-// Default: "off" — safest for noisy demo rooms with bystanders.
-const INTERRUPTION = process.env.AGENT_INTERRUPTION || "off";
+// on trigger words — recommended for noisy demo rooms), "off" (never interrupt).
+// Default: "keywords" — bystanders won't trigger it, but the user can always
+// say "stop" / "wait" to cut the agent off mid-sentence.
+const INTERRUPTION = process.env.AGENT_INTERRUPTION || "keywords";
 
 const SYSTEM_PROMPT = `You are VibeCart, a friendly, fast-talking voice shopping assistant that guides the user through a complete shopping journey.
 Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checkout & payment, (4) delivery tracking, (5) delivered, (6) review.
 Rules:
 - Be extremely concise (1-3 sentences max); you are in a live voice call.
+- If the user says "stop" or "wait", end your reply immediately and listen to them.
 - Personalize using get_user_context at the start of a shopping request (diet, budget, offers, favorite categories).
 - When the user mentions a dietary change, new budget, allergy, or any lasting preference, save it with update_preferences and acknowledge it.
 - Recommend products by name and price; use compare_products when the user is unsure.
@@ -136,7 +138,7 @@ export function agoraRoutes(app) {
           greeting_message: "Hi! I'm VibeCart. Tell me what you're shopping for and I'll find it, compare, and check out for you.",
           failure_message: "Sorry, one second — let me fix that.",
           max_history: 32,
-          params: { model: LLM_MODEL, max_tokens: 200, temperature: 0.7 },
+          params: { model: LLM_MODEL, max_tokens: 160, temperature: 0.7 },
           tools: agoraTools(sessionId)
         },
         tts: {
