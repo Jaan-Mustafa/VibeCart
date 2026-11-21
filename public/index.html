@@ -127,6 +127,7 @@
         <div id="userChip" class="hidden items-center gap-2">
           <img id="userAvatar" class="w-6 h-6 rounded-full" alt="" />
           <span id="userName" class="text-white"></span>
+          <button id="logoutBtn" title="Sign out" class="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold text-white" style="background:rgba(255,255,255,.15)">Sign out</button>
         </div>
         <span id="statePill" class="hidden items-center gap-2 px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.12)">
           <span id="stateDot" class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="stateText" class="capitalize text-white">listening</span>
@@ -554,6 +555,17 @@ function showUser(user) {
   $("userName").textContent = user.name.split(" ")[0];
   $("greetName").textContent = `Hello, ${user.name.split(" ")[0]} 👋`;
 }
+
+// Sign out: clear the session + profile mapping (stored data stays for next sign-in)
+$("logoutBtn").onclick = () => {
+  try { google.accounts.id.disableAutoSelect(); } catch {}
+  localStorage.removeItem("vibecart_user");
+  googleUser = null;
+  $("userChip").classList.add("hidden");
+  $("userChip").classList.remove("flex");
+  $("googleSignIn").classList.remove("hidden");
+  $("greetName").textContent = "Hello, Rizabul 👋";
+};
 
 initGoogleSignIn();
 
