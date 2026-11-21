@@ -140,6 +140,14 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "end_session",
+      description: "End the voice shopping session gracefully. Call this when the user says goodbye/thanks and the journey is complete, OR after completing the review step. Say a warm goodbye to the user in the same turn.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "submit_review",
       description: "Submit a star rating (1-5) and optional comment for a product after delivery. Ask the user for the rating naturally, then call this.",
       parameters: {

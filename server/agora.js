@@ -33,6 +33,7 @@ Rules:
 - Ask "want me to track your order?" after payment. Each tracking request advances delivery: preparing → out_for_delivery → delivered.
 - After delivery, proactively offer to submit_review (ask how they'd rate it 1-5).
 - Handle returns via initiate_return if the user is unhappy.
+- After the review is submitted, thank the user, say a warm goodbye, and call end_session. Also call end_session whenever the user says goodbye/that's all.
 - Never invent products, prices, or order IDs. Only use tool results.
 - If interrupted, stop immediately and address the user's new request.`;
 
@@ -55,6 +56,8 @@ function agoraTools() {
       url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}`
     };
     if (isPost) server.body = paramsToBody(fn.parameters);
+    // end_session needs to know which agent to stop — inject the session id
+    if (fn.name === "end_session") server.url = `${BASE_URL}/tools/end_session?session={{template_variables.session}}`;
     return { type: "function", function: { name: fn.name, description: fn.description, parameters: fn.parameters }, server };
   });
 }
@@ -73,6 +76,13 @@ function rtcToken(channel, uid = 0, expirySeconds = 3600 * 2) {
   return RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERT, channel, uid, RtcRole.PUBLISHER, expirySeconds);
 }
 
+// session registry: lets tools (end_session) find the agent to stop
+const sessionRegistry = new Map(); // sessionId -> { agentId, channel }
+
+export function listActiveSessions() {
+  return [...sessionRegistry.entries()].map(([k, v]) => ({ session: k, ...v }));
+}
+
 export function agoraRoutes(app) {
   // Join endpoint for the browser: RTC token + agent session details
   app.post("/api/agent/start", async (req, res) => {
@@ -81,6 +91,7 @@ export function agoraRoutes(app) {
 
     const token = rtcToken(channel, uid);
     const agentUid = 90000 + Math.floor(Math.random() * 9999);
+    const sessionId = "s" + Date.now() + Math.floor(Math.random() * 1e4);
 
     const body = {
       name: `vibecart-${channel}-${Date.now()}`,
@@ -90,6 +101,7 @@ export function agoraRoutes(app) {
         agent_rtc_uid: String(agentUid),
         remote_rtc_uids: [String(uid)],
         idle_timeout: 120,
+        template_variables: { session: sessionId },
         advanced_features: { enable_tools: true, enable_rtm: true },
         parameters: { data_channel: "rtm", enable_metrics: true, enable_error_message: true },
         // Robust turn-taking: ignore short noises/echo, require ~600ms of clear speech
@@ -151,8 +163,9 @@ export function agoraRoutes(app) {
       });
       const data = await r.json();
       if (!r.ok) return res.status(r.status).json({ error: "agora_join_failed", detail: data });
-      console.log(`[agent] started ${data.agent_id} channel=${channel} uid=${uid}`);
-      res.json({ appId: APP_ID, token, rtmToken: RtmTokenBuilder.buildToken(APP_ID, APP_CERT, String(uid), 3600), agentId: data.agent_id, agentUid });
+      sessionRegistry.set(sessionId, { agentId: data.agent_id, channel });
+      console.log(`[agent] started ${data.agent_id} channel=${channel} uid=${uid} session=${sessionId}`);
+      res.json({ appId: APP_ID, token, rtmToken: RtmTokenBuilder.buildToken(APP_ID, APP_CERT, String(uid), 3600), agentId: data.agent_id, agentUid, sessionId });
     } catch (e) {
       res.status(502).json({ error: "agora_unreachable", detail: e.message });
     }
@@ -194,6 +207,19 @@ export function agoraRoutes(app) {
   });
 
   app.get("/tools/:name", async (req, res) => {
+    if (req.params.name === "end_session") {
+      const s = sessionRegistry.get(req.query.session);
+      if (!s) return res.json({ ok: false, message: "session not found" });
+      // let the agent finish its farewell, then leave the channel
+      setTimeout(async () => {
+        try {
+          const r = await fetch(`https://api.agora.io/api/conversational-ai-agent/v2/projects/${APP_ID}/agents/${s.agentId}/leave`, { method: "POST", headers: { "Authorization": `Basic ${BASIC_AUTH}` } });
+          console.log(`[agent] auto-leave (end_session) ${s.agentId} ok=${r.ok}`);
+          sessionRegistry.delete(req.query.session);
+        } catch {}
+      }, 5000);
+      return res.json({ ok: true, message: "session closing" });
+    }
     const result = await executeTool(req.params.name, req.query);
     res.json(result);
   });

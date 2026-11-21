@@ -49,8 +49,12 @@ app.get("/api-events", (req, res) => {
 app.use("/api", api);
 agoraRoutes(app);
 
-// ---- Static frontend ----
-app.use(express.static(path.join(__dirname, "../public")));
+// ---- Static frontend (no-cache so UI fixes always reach the browser) ----
+app.get("/", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.join(__dirname, "../public/index.html"));
+});
+app.use(express.static(path.join(__dirname, "../public"), { setHeaders: (res, p) => { if (p.endsWith(".html")) res.set("Cache-Control", "no-store"); } }));
 app.use("/vendor/agora-rtm.js", express.static(path.join(__dirname, "../node_modules/agora-rtm/agora-rtm.js")));
 
 const PORT = process.env.PORT || 3000;
