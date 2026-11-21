@@ -66,9 +66,47 @@
   .jstep.done .jdot::before{content:"✓"}
   .jstep.done .jdot{font-size:0}
   .jline.done{background:#7dd3a8}
+  /* Agent view */
+  .eqbar{width:6px;border-radius:99px;background:#ff9900;height:8px;transition:height .12s}
+  #eq.on .eqbar{animation:eqjump .5s ease-in-out infinite}
+  #eq.on .eqbar:nth-child(2){animation-delay:.08s}#eq.on .eqbar:nth-child(3){animation-delay:.16s}
+  #eq.on .eqbar:nth-child(4){animation-delay:.24s}#eq.on .eqbar:nth-child(5){animation-delay:.32s}
+  @keyframes eqjump{0%,100%{height:8px}50%{height:30px}}
+  #avatarRing.pulse{animation:eqjump 1s ease-in-out infinite}
+  #avatarWrap.thinking #avatarRing{animation:eqjump .8s ease-in-out infinite}
+  #avatarWrap.thinking > div:last-child{filter:hue-rotate(40deg)}
 </style>
 </head>
 <body class="min-h-screen">
+
+  <!-- ===== Immersive Agent View (fullscreen) ===== -->
+  <div id="agentView" class="hidden fixed inset-0 z-40 flex flex-col items-center justify-center" style="background:radial-gradient(900px 600px at 50% 20%, rgba(255,153,0,.08), transparent 60%), #131921">
+    <!-- Avatar -->
+    <div id="avatarWrap" class="relative mb-6">
+      <div id="avatarRing" class="absolute -inset-6 rounded-full opacity-60" style="background:radial-gradient(circle, rgba(255,153,0,.35), transparent 70%)"></div>
+      <div id="avatarRing2" class="absolute -inset-10 rounded-full opacity-40" style="background:radial-gradient(circle, rgba(255,153,0,.2), transparent 70%)"></div>
+      <div class="w-40 h-40 rounded-full grid place-items-center text-[5rem] floaty"
+           style="background:linear-gradient(135deg,#ffb84d,#ff9900);box-shadow:0 20px 60px -10px rgba(255,153,0,.5)">🧑‍💼</div>
+    </div>
+    <!-- Speaking equalizer -->
+    <div id="eq" class="flex items-end gap-1 h-8 mb-3 opacity-0 transition-opacity">
+      <span class="eqbar"></span><span class="eqbar"></span><span class="eqbar"></span><span class="eqbar"></span><span class="eqbar"></span>
+    </div>
+    <div id="agentViewState" class="text-white text-lg font-bold mb-1">Ready</div>
+    <div id="avatarCaption" class="text-slate-300 text-sm mb-8 text-center max-w-xl px-6">Tap the mic and talk to your shopping agent</div>
+
+    <!-- Floating transcript -->
+    <div class="w-full max-w-2xl card !bg-white/95 p-4 max-h-56 overflow-y-auto scroll" id="agentViewTranscript"></div>
+
+    <!-- Bottom controls -->
+    <div class="absolute bottom-8 flex items-center gap-4">
+      <button id="avTalkBtn" class="btn-main px-7 py-3.5 text-sm flex items-center gap-2">
+        <span>🎙</span><span id="avTalkLabel">Start Talking</span>
+      </button>
+      <div id="avCartPill" class="chip !text-slate-800 !bg-white flex items-center gap-2">🧺 <span id="avCartCount">0</span> items · <span id="avCartTotal" class="price">₹0</span></div>
+      <button id="avExit" class="chip !text-slate-800 !bg-white">✕ Exit</button>
+    </div>
+  </div>
 
   <!-- Amazon-style dark top bar -->
   <div class="w-full" style="background:#131921">
@@ -84,6 +122,9 @@
         <span id="statePill" class="hidden items-center gap-2 px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.12)">
           <span id="stateDot" class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="stateText" class="capitalize text-white">listening</span>
         </span>
+        <button id="viewToggle" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white font-semibold" style="background:rgba(255,153,0,.9)">
+          🧑‍💼 <span id="viewToggleLabel">Agent View</span>
+        </button>
       </div>
     </div>
   </div>
@@ -248,6 +289,8 @@ function renderCart(cart) {
   const n = cart.items.reduce((s,i)=>s+i.qty,0);
   $("cartCount").textContent = `${n} item${n===1?"":"s"}`;
   $("cartCountTop").textContent = `Cart · ${n}`;
+  $("avCartCount").textContent = n;
+  $("avCartTotal").textContent = `₹${cart.totals.total.toLocaleString()}`;
   $("cartItems").innerHTML = cart.items.length ? cart.items.map(i =>
     `<li class="bubble-in row flex justify-between items-center px-3 py-2">
        <span class="min-w-0 truncate"><span class="text-emerald-600 font-bold">×${i.qty}</span> <span class="text-slate-800">${i.name}</span></span>
@@ -286,8 +329,7 @@ const rtmState = { rtm: null };
 function renderTranscript() {
   const el = $("transcript");
   const lines = [...transcript.values()];
-  if (!lines.length) { el.innerHTML = `<div class="text-slate-400 text-center py-10">Your words appear here in real time 🎧</div>`; return; }
-  el.innerHTML = lines.map(l => {
+  const bubble = (l) => {
     const isUser = l.role === "user";
     return `<div class="bubble-in flex ${isUser ? "justify-end" : "justify-start"}">
       <div class="max-w-[88%]">
@@ -298,8 +340,17 @@ function renderTranscript() {
             : "background:#f0fdf4;border:1px solid #cdebd4"}">${l.text}</div>
       </div>
     </div>`;
-  }).join("");
+  };
+  if (!lines.length) { el.innerHTML = `<div class="text-slate-400 text-center py-10">Your words appear here in real time 🎧</div>`; }
+  else el.innerHTML = lines.map(bubble).join("");
   el.scrollTop = el.scrollHeight;
+  // Mirror into Agent View
+  const av = $("agentViewTranscript");
+  if (av) {
+    if (!lines.length) av.innerHTML = `<div class="text-slate-400 text-center py-6 text-sm">Conversation appears here 🎧</div>`;
+    else av.innerHTML = lines.slice(-6).map(bubble).join("");
+    av.scrollTop = av.scrollHeight;
+  }
 }
 
 function handleTranscription(msg) {
@@ -318,6 +369,13 @@ function setAgentState(state) {
   $("stateText").textContent = state;
   const colors = { listening:"bg-sky-400", thinking:"bg-amber-400", speaking:"bg-emerald-400 animate-pulse", idle:"bg-slate-400", silent:"bg-slate-500" };
   $("stateDot").className = "w-2 h-2 rounded-full " + (colors[state] || "bg-slate-400");
+  // Mirror into Agent View
+  const wrap = $("avatarWrap"), eq = $("eq");
+  const pretty = { listening:"Listening…", thinking:"Thinking…", speaking:"Speaking…", idle:"Idle", silent:"Standing by" };
+  if (state === "speaking") { eq.classList.add("on"); wrap.classList.remove("thinking"); }
+  else if (state === "thinking") { eq.classList.remove("on"); wrap.classList.add("thinking"); }
+  else { eq.classList.remove("on"); wrap.classList.remove("thinking"); }
+  $("agentViewState").textContent = pretty[state] || state;
 }
 
 async function connectRtm(appId, channel, uid, rtmToken) {
@@ -408,6 +466,7 @@ $("talkBtn").onclick = async () => {
     setStatus("🎙 Live — speak naturally. You can interrupt me anytime!");
     $("talkBtn").innerHTML = "<span>⏹</span><span>End Session</span>";
     $("talkBtn").classList.add("btn-stop");
+    $("avTalkLabel").textContent = "End Session";
     $("pulse").classList.remove("hidden");
   } catch (e) {
     const msg = e?.message || String(e);
@@ -428,7 +487,20 @@ async function stopSession() {
   setStatus("Session ended. Press <b class='text-slate-900'>Start Talking</b> to go again!");
   $("talkBtn").innerHTML = "<span>🎙</span><span>Start Talking</span>";
   $("talkBtn").classList.remove("btn-stop");
+  $("avTalkLabel").textContent = "Start Talking";
   $("pulse").classList.add("hidden");
+}
+
+// ---- View toggle: Dashboard ⇄ immersive Agent View ----
+let agentViewOn = false;
+$("viewToggle").onclick = () => setAgentView(!agentViewOn);
+$("avExit").onclick = () => setAgentView(false);
+$("avTalkBtn").onclick = () => $("talkBtn").click();
+function setAgentView(on) {
+  agentViewOn = on;
+  $("agentView").classList.toggle("hidden", !on);
+  document.body.style.overflow = on ? "hidden" : "";
+  $("viewToggleLabel").textContent = on ? "Dashboard View" : "Agent View";
 }
 
 function setStatus(s) { $("status").innerHTML = s; }
