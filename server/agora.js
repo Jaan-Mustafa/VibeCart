@@ -126,7 +126,13 @@ export function agoraRoutes(app) {
           : INTERRUPTION === "keywords" ? {
               enable: true,
               mode: "keywords",
-              keywords_config: { trigger_keywords: ["stop", "wait", "hey vibecart"] }
+              keywords_config: {
+                trigger_keywords: [
+                  "stop", "stop it", "stop stop", "top", "shop stop", "stock",
+                  "wait", "wait wait", "hold on", "hang on", "cancel", "quiet",
+                  "excuse me", "hey stop", "no stop"
+                ]
+              }
             }
           : { enable: false, disabled_config: { strategy: "append" } },
         asr: { language: "en-US" },
