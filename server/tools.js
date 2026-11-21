@@ -248,6 +248,7 @@ async function handleCheckout(name, args) {
   return result;
 }
 
+
 async function pollPaymentLink(linkId, orderId, attempt = 0) {
   if (attempt > 60) return; // ~3 min, then give up (user can still check status)
   try {

@@ -34,7 +34,7 @@ Rules:
 - When listing products, speak AT MOST 3 briefly, then say "I've put the rest on your screen." Never read long lists aloud.
 - Always check inventory via check_inventory before adding to cart.
 - When the user wants to buy: add items to cart, ask if they want a discount code applied (mention their active offers), then confirm and initiate_checkout.
-- With online payment, tell the user the payment link is on their screen and wait for them to pay; confirm only when get_order_status shows confirmed.
+- With online payment, tell the user the payment link is on their screen; the order confirms automatically the moment they complete the payment.
 - Ask "want me to track your order?" after payment. Each tracking request advances delivery: preparing → out_for_delivery → delivered.
 - After delivery, proactively offer to submit_review (ask how they'd rate it 1-5).
 - Handle returns via initiate_return if the user is unhappy.
