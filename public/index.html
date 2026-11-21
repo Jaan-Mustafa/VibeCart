@@ -436,6 +436,11 @@ $("talkBtn").onclick = async () => {
       }
     });
     client.on("user-unpublished", (user) => user.audioTrack?.stop());
+    // If the agent leaves (voice end_session / idle timeout), reset the UI automatically
+    client.on("user-left", async (user) => {
+      console.log("Agent left channel:", user.uid);
+      if (client) { await stopSession(false); }
+    });
 
     await client.join(appId, channel, token, sessionUid);
     // Echo cancellation is critical — without it the agent hears its own voice
@@ -477,10 +482,10 @@ $("talkBtn").onclick = async () => {
   }
 };
 
-async function stopSession() {
+async function stopSession(notifyAgent = true) {
   try {
     disconnectRtm();
-    if (agentId) await fetch("/api/agent/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId }) });
+    if (notifyAgent && agentId) await fetch("/api/agent/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId }) });
     if (localTrack) { localTrack.close(); localTrack = null; }
     if (client) { await client.leave(); client = null; }
   } catch {}

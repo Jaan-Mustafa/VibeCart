@@ -41,7 +41,7 @@ Rules:
 // Convert our OpenAI-style tools to Agora custom tools (engine calls our HTTPS endpoints)
 // NOTE: every param is marked required — Agora rejects unresolved {{args.*}} templates,
 // so the LLM must always pass a value ("" or 0 when not applicable).
-function agoraTools() {
+function agoraTools(sessionId) {
   return TOOLS.map(t => {
     const fn = JSON.parse(JSON.stringify(t.function));
     if (fn.parameters?.properties) {
@@ -57,8 +57,8 @@ function agoraTools() {
       url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}`
     };
     if (isPost) server.body = paramsToBody(fn.parameters);
-    // end_session needs to know which agent to stop — inject the session id
-    if (fn.name === "end_session") server.url = `${BASE_URL}/tools/end_session?session={{template_variables.session}}`;
+    // end_session needs to know which agent to stop — inject the session id directly
+    if (fn.name === "end_session") server.url = `${BASE_URL}/tools/end_session?session=${sessionId}`;
     return { type: "function", function: { name: fn.name, description: fn.description, parameters: fn.parameters }, server };
   });
 }
@@ -102,7 +102,6 @@ export function agoraRoutes(app) {
         agent_rtc_uid: String(agentUid),
         remote_rtc_uids: [String(uid)],
         idle_timeout: 120,
-        template_variables: { session: sessionId },
         advanced_features: { enable_tools: true, enable_rtm: true },
         parameters: { data_channel: "rtm", enable_metrics: true, enable_error_message: true },
         // Robust turn-taking: ignore short noises/echo, require ~600ms of clear speech
@@ -138,7 +137,7 @@ export function agoraRoutes(app) {
           failure_message: "Sorry, one second — let me fix that.",
           max_history: 32,
           params: { model: LLM_MODEL, max_tokens: 200, temperature: 0.7 },
-          tools: agoraTools()
+          tools: agoraTools(sessionId)
         },
         tts: {
           vendor: "murf",
