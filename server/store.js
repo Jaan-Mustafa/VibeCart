@@ -163,8 +163,6 @@ function restore() {
     console.log(`[store] restored user data: ${db.orders.size} orders, ${db.reviews.size} reviews, prefs: ${JSON.stringify(USER.prefs)}`);
   } catch (e) { console.warn("restore failed:", e.message); }
 }
-restore();
-
 // ---- Per-user profiles (Google-signed-in users; guests fall back to USER) ----
 const PROFILES = {}; // userId -> {id, name, prefs, history, offers, learned}
 
@@ -191,6 +189,8 @@ export function setUserProfile(userId, patch) {
   return prof;
 }
 export function getProfile(userId) { return userId ? profileFor(userId) : USER; }
+
+restore();
 
 function newCart() {
   const cart = { id: "c" + Date.now(), items: [], discount: null, totals: { subtotal: 0, discount: 0, total: 0 } };
