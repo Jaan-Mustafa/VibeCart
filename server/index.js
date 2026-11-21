@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 import { store } from "./store.js";
 import { TOOLS, onUiEvent } from "./tools.js";
 import { agoraRoutes } from "./agora.js";
+import { googleAuthRoutes } from "./auth.js";
+import { initMemory } from "./memory.js";
+initMemory().catch(e => console.warn("memory init failed:", e.message));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -48,6 +51,7 @@ app.get("/api-events", (req, res) => {
 
 app.use("/api", api);
 agoraRoutes(app);
+googleAuthRoutes(app);
 
 // ---- Static frontend (no-cache so UI fixes always reach the browser) ----
 app.get("/", (req, res) => {

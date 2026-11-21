@@ -5,6 +5,7 @@
 import pkg from "agora-token";
 const { RtcTokenBuilder, RtcRole, RtmTokenBuilder } = pkg;
 import { TOOLS, executeTool } from "./tools.js";
+import { setUserProfile } from "./store.js";
 
 const APP_ID = process.env.AGORA_APP_ID;
 const APP_CERT = process.env.AGORA_APP_CERTIFICATE;
@@ -27,8 +28,8 @@ Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checko
 Rules:
 - Be extremely concise (1-3 sentences max); you are in a live voice call.
 - If the user says "stop" or "wait", end your reply immediately and listen to them.
-- Personalize using get_user_context at the start of a shopping request (diet, budget, offers, favorite categories).
-- When the user mentions a dietary change, new budget, allergy, or any lasting preference, save it with update_preferences and acknowledge it.
+- Personalize using get_user_context at the start of a shopping request (diet, budget, offers, favorite categories), and use recall_memory when past context would help.
+- When the user mentions a dietary change, new budget, allergy, or any lasting preference, save it with update_preferences and acknowledge it. Also call remember_fact for any durable fact worth keeping.
 - Recommend products by name and price; use compare_products when the user is unsure.
 - When listing products, speak AT MOST 3 briefly, then say "I've put the rest on your screen." Never read long lists aloud.
 - Always check inventory via check_inventory before adding to cart.
@@ -44,7 +45,8 @@ Rules:
 // Convert our OpenAI-style tools to Agora custom tools (engine calls our HTTPS endpoints)
 // NOTE: every param is marked required — Agora rejects unresolved {{args.*}} templates,
 // so the LLM must always pass a value ("" or 0 when not applicable).
-function agoraTools(sessionId) {
+function agoraTools(sessionId, userId) {
+  const userQ = userId ? `&user=${encodeURIComponent(userId)}` : "";
   return TOOLS.map(t => {
     const fn = JSON.parse(JSON.stringify(t.function));
     if (fn.parameters?.properties) {
@@ -57,9 +59,9 @@ function agoraTools(sessionId) {
     const isPost = ["add_to_cart", "remove_from_cart", "apply_discount", "initiate_checkout", "initiate_return", "check_inventory", "compare_products", "search_catalog", "submit_review", "update_preferences"].includes(fn.name);
     const server = {
       method: isPost ? "POST" : "GET",
-      url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}`
+      url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}${userQ}`
     };
-    if (isPost) server.body = paramsToBody(fn.parameters);
+    if (isPost) server.body = userId ? { user: userId, ...paramsToBody(fn.parameters) } : paramsToBody(fn.parameters);
     // end_session needs to know which agent to stop — inject the session id directly
     if (fn.name === "end_session") server.url = `${BASE_URL}/tools/end_session?session=${sessionId}`;
     return { type: "function", function: { name: fn.name, description: fn.description, parameters: fn.parameters }, server };
@@ -90,8 +92,12 @@ export function listActiveSessions() {
 export function agoraRoutes(app) {
   // Join endpoint for the browser: RTC token + agent session details
   app.post("/api/agent/start", async (req, res) => {
-    const { channel, uid } = req.body;
+    const { channel, uid, user } = req.body;
     if (!channel) return res.status(400).json({ error: "channel required" });
+    if (user) {
+      const prof = setUserProfile(user, {});
+      if (req.body.userName) setUserProfile(user, { name: req.body.userName });
+    }
 
     const token = rtcToken(channel, uid);
     const agentUid = 90000 + Math.floor(Math.random() * 9999);
@@ -146,7 +152,7 @@ export function agoraRoutes(app) {
           failure_message: "Sorry, one second — let me fix that.",
           max_history: 32,
           params: { model: LLM_MODEL, max_tokens: 160, temperature: 0.7 },
-          tools: agoraTools(sessionId)
+          tools: agoraTools(sessionId, user)
         },
         tts: {
           vendor: "murf",
@@ -207,6 +213,11 @@ export function agoraRoutes(app) {
   app.post("/api/client-error", (req, res) => {
     console.error(`[client-error] ${req.body?.msg}\n${req.body?.stack || ""}`);
     res.json({ ok: true });
+  });
+
+  // OAuth client id for the frontend sign-in button
+  app.get("/api/auth/config", (req, res) => {
+    res.json({ clientId: process.env.GOOGLE_CLIENT_ID || "" });
   });
 
   // HTTPS endpoint the ConvoAI engine calls when the LLM invokes a custom tool

@@ -143,6 +143,7 @@ function persist() {
     fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
     fs.writeFileSync(STATE_FILE, JSON.stringify({
       user: USER,
+      profiles: PROFILES,
       orders: [...db.orders.values()],
       reviews: [...db.reviews.entries()],
       orderSeq: db.orderSeq
@@ -155,6 +156,7 @@ function restore() {
     if (!fs.existsSync(STATE_FILE)) return;
     const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
     if (s.user) Object.assign(USER, s.user);
+    if (s.profiles) Object.assign(PROFILES, s.profiles);
     if (s.orders) s.orders.forEach(o => db.orders.set(o.id, o));
     if (s.reviews) s.reviews.forEach(([k, v]) => db.reviews.set(k, v));
     if (s.orderSeq) db.orderSeq = s.orderSeq;
@@ -162,6 +164,33 @@ function restore() {
   } catch (e) { console.warn("restore failed:", e.message); }
 }
 restore();
+
+// ---- Per-user profiles (Google-signed-in users; guests fall back to USER) ----
+const PROFILES = {}; // userId -> {id, name, prefs, history, offers, learned}
+
+function profileFor(userId) {
+  if (!userId) return USER;
+  if (!PROFILES[userId]) {
+    PROFILES[userId] = {
+      id: userId,
+      name: "Shopper",
+      prefs: { diet: "", budget: 0, allergies: [] },
+      history: [],
+      offers: USER.offers,
+      learned: []
+    };
+    persist();
+  }
+  return PROFILES[userId];
+}
+
+export function setUserProfile(userId, patch) {
+  const prof = profileFor(userId);
+  Object.assign(prof, patch);
+  persist();
+  return prof;
+}
+export function getProfile(userId) { return userId ? profileFor(userId) : USER; }
 
 function newCart() {
   const cart = { id: "c" + Date.now(), items: [], discount: null, totals: { subtotal: 0, discount: 0, total: 0 } };
@@ -229,11 +258,12 @@ export const store = {
   DISCOUNTS,
   USER,
 
-  getUserContext() {
+  getUserContext(userId) {
+    const prof = profileFor(userId);
     // Real personalization: derived from ACTUAL stored orders (fall back to seeded history)
     const realOrders = [...db.orders.values()].filter(o => o.status !== "pending_payment");
     const purchasedIds = [...new Set(realOrders.flatMap(o => o.items.map(i => i.productId)))];
-    const history = purchasedIds.length ? purchasedIds.slice(-6) : USER.history;
+    const history = purchasedIds.length ? purchasedIds.slice(-6) : prof.history;
     const depts = {};
     realOrders.flatMap(o => o.items).forEach(i => {
       const p = CATALOG.find(c => c.id === i.productId);
@@ -241,25 +271,26 @@ export const store = {
     });
     const topCategories = Object.entries(depts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
     return {
-      user: { ...USER, history },
+      user: { ...prof, history },
       orderCount: realOrders.length,
       lastOrderId: realOrders[realOrders.length - 1]?.id,
       favoriteCategories: topCategories,
-      activeOffers: USER.offers.map(c => ({ code: c, ...DISCOUNTS[c] }))
+      activeOffers: prof.offers.map(c => ({ code: c, ...DISCOUNTS[c] }))
     };
   },
 
-  updatePreferences({ diet = "", budget = 0, allergies = "", likes = "", dislikes = "", note = "" }) {
-    if (diet) USER.prefs.diet = diet;
-    if (budget) USER.prefs.budget = Number(budget);
+  updatePreferences({ user: userId, diet = "", budget = 0, allergies = "", likes = "", dislikes = "", note = "" }) {
+    const prof = profileFor(userId);
+    if (diet) prof.prefs.diet = diet;
+    if (budget) prof.prefs.budget = Number(budget);
     if (allergies) {
       const list = String(allergies).split(/[, ]+/).filter(Boolean);
-      for (const a of list) if (!USER.prefs.allergies.includes(a)) USER.prefs.allergies.push(a);
+      for (const a of list) if (!prof.prefs.allergies.includes(a)) prof.prefs.allergies.push(a);
     }
     const fact = note || [likes && `likes ${likes}`, dislikes && `dislikes ${dislikes}`].filter(Boolean).join("; ");
-    if (fact && !USER.learned.includes(fact)) USER.learned.push(fact);
+    if (fact && !prof.learned.includes(fact)) prof.learned.push(fact);
     persist();
-    return { prefs: USER.prefs, learned: USER.learned, message: "Preferences saved. I'll remember that." };
+    return { prefs: prof.prefs, learned: prof.learned, message: "Preferences saved. I'll remember that." };
   },
 
   searchCatalog({ query = "", category = "", maxPrice = 0, minPrice = 0, tags = [], dept = "", limit = 8 } = {}) {

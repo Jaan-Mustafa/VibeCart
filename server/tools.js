@@ -4,6 +4,7 @@
 
 import { store } from "./store.js";
 import { paymentsAvailable, createPaymentLink, getPaymentLink } from "./razorpay.js";
+import { rememberFact, recallMemory } from "./memory.js";
 
 export const TOOLS = [
   {
@@ -140,6 +141,30 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "remember_fact",
+      description: "Persist a durable fact about the user into long-term semantic memory (vector DB). Use for anything worth remembering beyond the current session: preferences, likes/dislikes, occasions, past experiences. Call with a short self-contained sentence.",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "Self-contained fact, e.g. 'User prefers brands like Sony'" } },
+        required: ["text"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "recall_memory",
+      description: "Semantic search over the user's long-term memory (past preferences, purchases, conversations). Call this when personalizing a recommendation or when the user asks 'do you remember...'.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "What to recall, e.g. 'dietary preferences'" } },
+        required: ["query"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "update_preferences",
       description: "Save new information about the user that you learned during the conversation — dietary changes, budget changes, allergies, likes/dislikes. Call this when the user says things like 'I'm vegetarian now', 'my budget is 2000', 'I'm allergic to nuts'. Preferences are stored permanently.",
       parameters: {
@@ -236,12 +261,14 @@ async function pollPaymentLink(linkId, orderId, attempt = 0) {
   setTimeout(() => pollPaymentLink(linkId, orderId, attempt + 1), 3000);
 }
 
-export function executeTool(name, args) {
+export async function executeTool(name, args) {
   let result;
   try {
     switch (name) {
-      case "get_user_context":      result = store.getUserContext(); break;
-      case "update_preferences":    result = store.updatePreferences(args); break;
+      case "get_user_context":      result = store.getUserContext(args.user); break;
+      case "update_preferences":    result = store.updatePreferences({ ...args, user: args.user }); break;
+      case "remember_fact":         result = await rememberFact(args.user, args.text); break;
+      case "recall_memory":         result = await recallMemory(args.user, args.query); break;
       case "search_catalog":        result = store.searchCatalog(args); break;
       case "check_inventory":       result = store.checkInventory(args.productIds || []); break;
       case "compare_products":      result = store.compareProducts(args.productIds || []); break;

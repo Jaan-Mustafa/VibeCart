@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>VibeCart — Shop by Talking</title>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.23.4.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -120,8 +121,13 @@
         <span class="hidden sm:inline text-[11px] text-slate-300 border border-slate-500/40 rounded px-1.5 py-0.5">voice checkout · demo</span>
       </div>
       <div class="flex items-center gap-4 text-[12px] text-slate-300">
-        <span class="hidden md:inline">Hello, Rizabul 👋</span>
+        <span id="greetName" class="hidden md:inline">Hello, Rizabul 👋</span>
         <span class="hidden md:flex items-center gap-1">🧺 <span id="cartCountTop">Cart · 0</span></span>
+        <div id="googleSignIn" class="hidden"></div>
+        <div id="userChip" class="hidden items-center gap-2">
+          <img id="userAvatar" class="w-6 h-6 rounded-full" alt="" />
+          <span id="userName" class="text-white"></span>
+        </div>
         <span id="statePill" class="hidden items-center gap-2 px-2.5 py-1 rounded-full" style="background:rgba(255,255,255,.12)">
           <span id="stateDot" class="w-2 h-2 rounded-full bg-emerald-400"></span><span id="stateText" class="capitalize text-white">listening</span>
         </span>
@@ -429,7 +435,7 @@ $("talkBtn").onclick = async () => {
     setStatus("Connecting…");
     const r = await fetch("/api/agent/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel, uid: sessionUid })
+      body: JSON.stringify({ channel, uid: sessionUid, user: googleUser?.sub, userName: googleUser?.name })
     });
     if (!r.ok) throw new Error(JSON.stringify(await r.json()));
     const { appId, token, rtmToken, agentId: aid } = await r.json();
@@ -507,6 +513,49 @@ async function stopSession(notifyAgent = true) {
   $("avTalkLabel").textContent = "Start Talking";
   $("pulse").classList.add("hidden");
 }
+
+// ---- Google Sign-In: maps the user to their persistent profile + vector memory ----
+let googleUser = null;
+
+async function initGoogleSignIn() {
+  // Ask the server for its configured client id
+  try {
+    const r = await fetch("/api/auth/config");
+    const { clientId } = await r.json();
+    if (!clientId) return; // no client id configured — skip sign-in UI
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (resp) => {
+        const r2 = await fetch("/api/auth/google", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential: resp.credential })
+        });
+        const { user } = await r2.json();
+        if (!user) return;
+        googleUser = user;
+        localStorage.setItem("vibecart_user", JSON.stringify(user));
+        showUser(user);
+      }
+    });
+    const saved = localStorage.getItem("vibecart_user");
+    if (saved) { googleUser = JSON.parse(saved); showUser(googleUser); }
+    else {
+      $("googleSignIn").classList.remove("hidden");
+      google.accounts.id.renderButton($("googleSignIn"), { theme: "filled_black", size: "small", text: "signin_with" });
+    }
+  } catch {}
+}
+
+function showUser(user) {
+  $("googleSignIn").classList.add("hidden");
+  $("userChip").classList.remove("hidden");
+  $("userChip").classList.add("flex");
+  if (user.picture) { $("userAvatar").src = user.picture; $("userAvatar").classList.remove("hidden"); }
+  $("userName").textContent = user.name.split(" ")[0];
+  $("greetName").textContent = `Hello, ${user.name.split(" ")[0]} 👋`;
+}
+
+initGoogleSignIn();
 
 // ---- View toggle: Dashboard ⇄ immersive Agent View ----
 let agentViewOn = false;
