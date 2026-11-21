@@ -96,10 +96,12 @@
         <h1 class="text-2xl font-extrabold tracking-tight">Shop by <span style="color:var(--accent-dark)">talking</span>.</h1>
         <p id="status" class="text-sm text-slate-600 mt-1">Press <b class="text-slate-900">Start Talking</b> and say what you need — VibeCart finds it, compares, and checks out for you.</p>
       </div>
-      <button id="talkBtn" class="btn-main px-6 py-3 text-sm flex items-center gap-2 self-start md:self-auto">
-        <span>🎙</span><span>Start Talking</span>
-        <span id="pulse" class="pulse-ring absolute inset-0 rounded-full border-2 border-orange-400 hidden"></span>
-      </button>
+      <div class="relative self-start md:self-auto">
+        <button id="talkBtn" class="btn-main px-6 py-3 text-sm flex items-center gap-2">
+          <span>🎙</span><span>Start Talking</span>
+        </button>
+        <span id="pulse" class="pulse-ring absolute inset-0 rounded-full border-2 border-orange-400 hidden pointer-events-none"></span>
+      </div>
     </div>
 
     <!-- Suggestion chips -->
@@ -380,18 +382,27 @@ $("talkBtn").onclick = async () => {
     await client.join(appId, channel, token, sessionUid);
     // Echo cancellation is critical — without it the agent hears its own voice
     // through your speakers and interrupts itself constantly.
-    try {
-      localTrack = await AgoraRTC.createMicrophoneAudioTrack({
-        AEC: true, ANS: true, AGC: true,
-        echoCancellation: true, noiseSuppression: true, autoGainControl: true
-      });
-    } catch (micErr) {
-      const hint = /NotReadable|TrackStart/i.test(String(micErr?.code || micErr))
-        ? "mic is busy — close Zoom/Meet/other tabs using it, then retry"
-        : /NotAllowed|Permission/i.test(String(micErr?.code || micErr))
-        ? "mic permission denied — click the 🔒 icon in the address bar → allow microphone, then retry"
-        : "mic error — try reconnecting your microphone";
-      throw new Error(`🎙 ${hint} (${micErr?.code || micErr?.message || micErr})`);
+    // Try AEC first; if the device rejects the constraints, fall back to defaults.
+    for (const [label, opts] of [
+      ["aec", { AEC: true, ANS: true, AGC: true, echoCancellation: true, noiseSuppression: true, autoGainControl: true }],
+      ["default", {}]
+    ]) {
+      try {
+        localTrack = await AgoraRTC.createMicrophoneAudioTrack(opts);
+        console.log("mic track created with", label, "config");
+        break;
+      } catch (micErr) {
+        const code = String(micErr?.code || "");
+        if (/NOT_SUPPORTED|PERMISSION|READ/i.test(code) || label === "default") {
+          const hint = /NotReadable|TrackStart|READ/i.test(code)
+            ? "mic is busy — close Zoom/Meet/other tabs using it, then retry"
+            : /NotAllowed|Permission|PERMISSION/i.test(code)
+            ? "mic permission denied — click the 🔒 icon in the address bar → allow microphone, then retry"
+            : "mic error — try reconnecting your microphone";
+          throw new Error(`🎙 ${hint} (${code || micErr?.message || micErr})`);
+        }
+        console.warn("AEC mic config rejected, retrying with defaults:", micErr);
+      }
     }
     await client.publish([localTrack]);
     setStatus("🎙 Live — speak naturally. You can interrupt me anytime!");
@@ -399,7 +410,10 @@ $("talkBtn").onclick = async () => {
     $("talkBtn").classList.add("btn-stop");
     $("pulse").classList.remove("hidden");
   } catch (e) {
-    setStatus(`Error: ${e.message}`);
+    const msg = e?.message || String(e);
+    setStatus(`Error: ${msg}`);
+    console.error("VOICE SESSION ERROR:", e);
+    fetch("/api/client-error", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msg, stack: e?.stack || "" }) }).catch(() => {});
     stopSession();
   }
 };

@@ -181,6 +181,12 @@ export function agoraRoutes(app) {
     res.status(r.status).json(await r.json());
   });
 
+  // Browser-side error beacon — lets us diagnose voice session failures from the server log
+  app.post("/api/client-error", (req, res) => {
+    console.error(`[client-error] ${req.body?.msg}\n${req.body?.stack || ""}`);
+    res.json({ ok: true });
+  });
+
   // HTTPS endpoint the ConvoAI engine calls when the LLM invokes a custom tool
   app.post("/tools/:name", async (req, res) => {
     const result = await executeTool(req.params.name, req.body);
