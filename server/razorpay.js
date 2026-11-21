@@ -19,7 +19,7 @@ async function rz(path, method = "GET", body) {
   return data;
 }
 
-export async function createPaymentLink({ order, customerName = "Arjun" }) {
+export async function createPaymentLink({ order, customerName = "Rizabul" }) {
   const link = await rz("payment_links", "POST", {
     amount: order.totals.total * 100, // paise
     currency: "INR",

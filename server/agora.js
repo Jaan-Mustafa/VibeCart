@@ -16,6 +16,11 @@ const LLM_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1/c
 const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
 const MURF_KEY = process.env.MURF_API_KEY;
 
+// Interruption strategy: "on" (full voice interruption), "keywords" (interrupt only
+// on trigger words), "off" (never interrupt; user speech is queued until agent finishes).
+// Default: "off" — safest for noisy demo rooms with bystanders.
+const INTERRUPTION = process.env.AGENT_INTERRUPTION || "off";
+
 const SYSTEM_PROMPT = `You are VibeCart, a friendly, fast-talking voice shopping assistant that guides the user through a complete shopping journey.
 Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checkout & payment, (4) delivery tracking, (5) delivered, (6) review.
 Rules:
@@ -103,6 +108,13 @@ export function agoraRoutes(app) {
             }
           }
         },
+        interruption: INTERRUPTION === "on" ? { enable: true }
+          : INTERRUPTION === "keywords" ? {
+              enable: true,
+              mode: "keywords",
+              keywords_config: { trigger_keywords: ["stop", "wait", "hey vibecart"] }
+            }
+          : { enable: false, disabled_config: { strategy: "append" } },
         asr: { language: "en-US" },
         llm: {
           vendor: "openai",

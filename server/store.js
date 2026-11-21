@@ -115,7 +115,7 @@ const DISCOUNTS = {
 
 const USER = {
   id: "u1",
-  name: "Arjun",
+  name: "Rizabul",
   prefs: { diet: "keto", budget: 800, allergies: [] },
   history: ["gr06", "gr12", "gr05"],
   offers: ["KETO10", "VIBE50", "FIRST100"]
