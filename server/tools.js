@@ -140,6 +140,25 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "update_preferences",
+      description: "Save new information about the user that you learned during the conversation — dietary changes, budget changes, allergies, likes/dislikes. Call this when the user says things like 'I'm vegetarian now', 'my budget is 2000', 'I'm allergic to nuts'. Preferences are stored permanently.",
+      parameters: {
+        type: "object",
+        properties: {
+          diet: { type: "string", description: "e.g. keto, vegetarian, vegan, none" },
+          budget: { type: "number", description: "New budget in rupees" },
+          allergies: { type: "string", description: "Comma-separated allergies" },
+          likes: { type: "string", description: "Things the user said they like" },
+          dislikes: { type: "string", description: "Things the user said they dislike" },
+          note: { type: "string", description: "Any other fact worth remembering" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "end_session",
       description: "End the voice shopping session gracefully. Call this when the user says goodbye/thanks and the journey is complete, OR after completing the review step. Say a warm goodbye to the user in the same turn.",
       parameters: { type: "object", properties: {}, required: [] }
@@ -222,6 +241,7 @@ export function executeTool(name, args) {
   try {
     switch (name) {
       case "get_user_context":      result = store.getUserContext(); break;
+      case "update_preferences":    result = store.updatePreferences(args); break;
       case "search_catalog":        result = store.searchCatalog(args); break;
       case "check_inventory":       result = store.checkInventory(args.productIds || []); break;
       case "compare_products":      result = store.compareProducts(args.productIds || []); break;
@@ -249,6 +269,8 @@ export function executeTool(name, args) {
     broadcast({ type: "order_status", tool: name, result });
   } else if (name === "submit_review") {
     broadcast({ type: "review_submitted", tool: name, result });
+  } else if (name === "update_preferences") {
+    broadcast({ type: "prefs_updated", tool: name, result });
   }
 
   return result;

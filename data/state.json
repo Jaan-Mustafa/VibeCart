@@ -1,0 +1,27 @@
+{
+  "user": {
+    "id": "u1",
+    "name": "Rizabul",
+    "prefs": {
+      "diet": "vegetarian",
+      "budget": 1500,
+      "allergies": []
+    },
+    "history": [
+      "gr06",
+      "gr12",
+      "gr05"
+    ],
+    "offers": [
+      "KETO10",
+      "VIBE50",
+      "FIRST100"
+    ],
+    "learned": [
+      "prefers organic"
+    ]
+  },
+  "orders": [],
+  "reviews": [],
+  "orderSeq": 1000
+}

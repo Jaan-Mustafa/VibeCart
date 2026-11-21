@@ -1,6 +1,11 @@
-// VibeCart — mock commerce store (in-memory)
+// VibeCart — mock commerce store (in-memory + JSON persistence)
 // Amazon-scale catalog: 8 departments, brands, ratings, reviews, stock,
-// inventory, carts, discounts, orders, user context.
+// inventory, carts, discounts, orders, user context, learned preferences.
+// User data (orders, reviews, learned prefs) persists to data/state.json.
+
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const CATALOG = [
   // ---------- GROCERY & GOURMET ----------
@@ -117,8 +122,9 @@ const USER = {
   id: "u1",
   name: "Rizabul",
   prefs: { diet: "keto", budget: 800, allergies: [] },
-  history: ["gr06", "gr12", "gr05"],
-  offers: ["KETO10", "VIBE50", "FIRST100"]
+  history: ["gr06", "gr12", "gr05"], // seeded sample history
+  offers: ["KETO10", "VIBE50", "FIRST100"],
+  learned: [] // facts the agent learns mid-conversation
 };
 
 const db = {
@@ -127,6 +133,35 @@ const db = {
   reviews: new Map(),
   orderSeq: 1000
 };
+
+// ---- Persistence: user data survives restarts ----
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STATE_FILE = path.join(__dirname, "../data/state.json");
+
+function persist() {
+  try {
+    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify({
+      user: USER,
+      orders: [...db.orders.values()],
+      reviews: [...db.reviews.entries()],
+      orderSeq: db.orderSeq
+    }, null, 2));
+  } catch (e) { console.warn("persist failed:", e.message); }
+}
+
+function restore() {
+  try {
+    if (!fs.existsSync(STATE_FILE)) return;
+    const s = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+    if (s.user) Object.assign(USER, s.user);
+    if (s.orders) s.orders.forEach(o => db.orders.set(o.id, o));
+    if (s.reviews) s.reviews.forEach(([k, v]) => db.reviews.set(k, v));
+    if (s.orderSeq) db.orderSeq = s.orderSeq;
+    console.log(`[store] restored user data: ${db.orders.size} orders, ${db.reviews.size} reviews, prefs: ${JSON.stringify(USER.prefs)}`);
+  } catch (e) { console.warn("restore failed:", e.message); }
+}
+restore();
 
 function newCart() {
   const cart = { id: "c" + Date.now(), items: [], discount: null, totals: { subtotal: 0, discount: 0, total: 0 } };
@@ -167,7 +202,26 @@ function scoreProduct(p, tokens) {
   // popularity tiebreaker, weighted by how much actually matched (≤9 raw)
   const matched = Math.min(score, 100);
   score += matched * ((p.rating || 4) / 5 + Math.min((p.reviews || 0) / 10000, 1));
+  // personalization boost: previously purchased categories & products rank higher
+  const hist = purchaseAffinity();
+  if (hist.categories.has(p.category)) score += 3;
+  if (hist.products.has(p.id)) score += 6;
   return score;
+}
+
+// purchase affinity from ACTUAL stored orders
+function purchaseAffinity() {
+  const categories = new Set();
+  const products = new Set();
+  for (const o of db.orders.values()) {
+    if (o.status === "pending_payment") continue;
+    for (const i of o.items) {
+      products.add(i.productId);
+      const p = CATALOG.find(c => c.id === i.productId);
+      if (p) categories.add(p.category);
+    }
+  }
+  return { categories, products };
 }
 
 export const store = {
@@ -176,7 +230,36 @@ export const store = {
   USER,
 
   getUserContext() {
-    return { user: USER, activeOffers: USER.offers.map(c => ({ code: c, ...DISCOUNTS[c] })) };
+    // Real personalization: derived from ACTUAL stored orders (fall back to seeded history)
+    const realOrders = [...db.orders.values()].filter(o => o.status !== "pending_payment");
+    const purchasedIds = [...new Set(realOrders.flatMap(o => o.items.map(i => i.productId)))];
+    const history = purchasedIds.length ? purchasedIds.slice(-6) : USER.history;
+    const depts = {};
+    realOrders.flatMap(o => o.items).forEach(i => {
+      const p = CATALOG.find(c => c.id === i.productId);
+      if (p) depts[p.category] = (depts[p.category] || 0) + i.qty;
+    });
+    const topCategories = Object.entries(depts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(x => x[0]);
+    return {
+      user: { ...USER, history },
+      orderCount: realOrders.length,
+      lastOrderId: realOrders[realOrders.length - 1]?.id,
+      favoriteCategories: topCategories,
+      activeOffers: USER.offers.map(c => ({ code: c, ...DISCOUNTS[c] }))
+    };
+  },
+
+  updatePreferences({ diet = "", budget = 0, allergies = "", likes = "", dislikes = "", note = "" }) {
+    if (diet) USER.prefs.diet = diet;
+    if (budget) USER.prefs.budget = Number(budget);
+    if (allergies) {
+      const list = String(allergies).split(/[, ]+/).filter(Boolean);
+      for (const a of list) if (!USER.prefs.allergies.includes(a)) USER.prefs.allergies.push(a);
+    }
+    const fact = note || [likes && `likes ${likes}`, dislikes && `dislikes ${dislikes}`].filter(Boolean).join("; ");
+    if (fact && !USER.learned.includes(fact)) USER.learned.push(fact);
+    persist();
+    return { prefs: USER.prefs, learned: USER.learned, message: "Preferences saved. I'll remember that." };
   },
 
   searchCatalog({ query = "", category = "", maxPrice = 0, minPrice = 0, tags = [], dept = "", limit = 8 } = {}) {
@@ -264,6 +347,7 @@ export const store = {
       placedAt: new Date().toISOString()
     };
     db.orders.set(order.id, order);
+    persist();
     db.carts.delete(cartId);
     return { order, message: paymentPending
       ? `Order ${order.id} created. Total ₹${order.totals.total}. A payment link is on your screen — pay and I'll confirm.`
@@ -296,6 +380,7 @@ export const store = {
     const key = productId || orderId;
     const review = { orderId, productId: productId || null, rating, comment, at: new Date().toISOString() };
     db.reviews.set(key, review);
+    persist();
     return { review, message: `Thanks! ${"⭐".repeat(Math.min(rating, 5))} review${comment ? ` — "${comment}"` : ""} recorded.` };
   },
 

@@ -25,7 +25,8 @@ const SYSTEM_PROMPT = `You are VibeCart, a friendly, fast-talking voice shopping
 Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checkout & payment, (4) delivery tracking, (5) delivered, (6) review.
 Rules:
 - Be extremely concise (1-3 sentences max); you are in a live voice call.
-- Personalize using get_user_context at the start of a shopping request (diet, budget, offers).
+- Personalize using get_user_context at the start of a shopping request (diet, budget, offers, favorite categories).
+- When the user mentions a dietary change, new budget, allergy, or any lasting preference, save it with update_preferences and acknowledge it.
 - Recommend products by name and price; use compare_products when the user is unsure.
 - Always check inventory via check_inventory before adding to cart.
 - When the user wants to buy: add items to cart, ask if they want a discount code applied (mention their active offers), then confirm and initiate_checkout.
@@ -50,7 +51,7 @@ function agoraTools() {
       }
     }
     // POST for anything with array/object params or mutations; GET only for simple scalar queries
-    const isPost = ["add_to_cart", "remove_from_cart", "apply_discount", "initiate_checkout", "initiate_return", "check_inventory", "compare_products", "search_catalog", "submit_review"].includes(fn.name);
+    const isPost = ["add_to_cart", "remove_from_cart", "apply_discount", "initiate_checkout", "initiate_return", "check_inventory", "compare_products", "search_catalog", "submit_review", "update_preferences"].includes(fn.name);
     const server = {
       method: isPost ? "POST" : "GET",
       url: isPost ? `${BASE_URL}/tools/${fn.name}` : `${BASE_URL}/tools/${fn.name}?${paramsToQuery(fn.parameters)}`
