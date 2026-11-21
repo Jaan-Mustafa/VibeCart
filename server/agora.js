@@ -16,11 +16,11 @@ const LLM_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1/c
 const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
 const MURF_KEY = process.env.MURF_API_KEY;
 
-// Interruption strategy: "on" (full voice interruption), "keywords" (interrupt only
-// on trigger words — recommended for noisy demo rooms), "off" (never interrupt).
-// Default: "keywords" — bystanders won't trigger it, but the user can always
-// say "stop" / "wait" to cut the agent off mid-sentence.
-const INTERRUPTION = process.env.AGENT_INTERRUPTION || "keywords";
+// Interruption strategy: "on" (full voice interruption — battle-tested, default),
+// "keywords" (trigger words only), "off" (never interrupt).
+// Default: "on" with raised thresholds (500/600ms) — user can cut the agent off
+// mid-sentence by speaking; short noises/echo are ignored.
+const INTERRUPTION = process.env.AGENT_INTERRUPTION || "on";
 
 const SYSTEM_PROMPT = `You are VibeCart, a friendly, fast-talking voice shopping assistant that guides the user through a complete shopping journey.
 Journey steps you manage: (1) discovery/search, (2) compare & choose, (3) checkout & payment, (4) delivery tracking, (5) delivered, (6) review.
@@ -30,6 +30,7 @@ Rules:
 - Personalize using get_user_context at the start of a shopping request (diet, budget, offers, favorite categories).
 - When the user mentions a dietary change, new budget, allergy, or any lasting preference, save it with update_preferences and acknowledge it.
 - Recommend products by name and price; use compare_products when the user is unsure.
+- When listing products, speak AT MOST 3 briefly, then say "I've put the rest on your screen." Never read long lists aloud.
 - Always check inventory via check_inventory before adding to cart.
 - When the user wants to buy: add items to cart, ask if they want a discount code applied (mention their active offers), then confirm and initiate_checkout.
 - With online payment, tell the user the payment link is on their screen and wait for them to pay; confirm only when get_order_status shows confirmed.
@@ -122,7 +123,7 @@ export function agoraRoutes(app) {
             }
           }
         },
-        interruption: INTERRUPTION === "on" ? { enable: true }
+        interruption: INTERRUPTION === "on" ? { enable: true, mode: "start_of_speech" }
           : INTERRUPTION === "keywords" ? {
               enable: true,
               mode: "keywords",
