@@ -98,6 +98,9 @@
     <!-- Floating transcript -->
     <div class="w-full max-w-2xl card !bg-white/95 p-4 max-h-56 overflow-y-auto scroll" id="agentViewTranscript"></div>
 
+    <!-- Recommendations strip -->
+    <div id="avProducts" class="w-full max-w-2xl mt-4 flex gap-2 overflow-x-auto scroll pb-1"></div>
+
     <!-- Bottom controls -->
     <div class="absolute bottom-8 flex items-center gap-4">
       <button id="avTalkBtn" class="btn-main px-7 py-3.5 text-sm flex items-center gap-2">
@@ -282,6 +285,15 @@ function renderProducts(items) {
          <div class="text-[11px] text-slate-500 truncate">${p.brand || ""} · <span style="color:#de7921">★</span> ${p.rating} <span class="text-slate-400">(${(p.reviews||0).toLocaleString()})</span></div>
        </div>
        <div class="price text-[.95rem]">₹${p.price.toLocaleString()}</div>
+     </div>`).join("");
+  // Mirror into Agent View (horizontal cards)
+  const av = $("avProducts");
+  if (av) av.innerHTML = items.slice(0, 4).map(p =>
+    `<div class="bubble-in flex-shrink-0 w-44 bg-white rounded-xl border border-[var(--border)] p-3 text-xs shadow-sm">
+       <div class="text-xl mb-1">${DEPT_EMOJI[p.category] || "📦"}</div>
+       <div class="font-semibold text-slate-900 truncate" title="${p.name}">${p.name}</div>
+       <div class="text-slate-500 mt-0.5">★ ${p.rating}</div>
+       <div class="price text-sm mt-1">₹${p.price.toLocaleString()}</div>
      </div>`).join("");
 }
 
